@@ -1,5 +1,5 @@
---lfos 
---trying to make this a thing
+--  lfos 
+-- beta v5 
 
 local lfo = {}
 
@@ -27,7 +27,8 @@ local phaseReset = false
 local counter = 1
 local lastTouched = 1
 local options = {}
-options.knobmodes =	{"sine", "knob"}
+options.knobmodes =	{"lfo", "val"}
+options.lfotypes = {"sine", "square","exp"}
 
 
 engine.name = "PolyPerc"
@@ -35,19 +36,30 @@ engine.name = "PolyPerc"
 function init()
 
 	local paramknobs = {}
-	params: add_number("midi_chan", "midi chan", 1, 16, 1) 
-
 	for a=1,4 do 
 		paramknobs[a] = {}
-		paramknobs[a].name = "Arc " .. a .. " Mode"
+		paramknobs[a].name = "arc " .. a .. " mode"
 		paramknobs[a].id = "arc_" .. a .. "_mode"
-		params:add{type = "option", name = paramknobs[a].name, id = paramknobs[a].id, options = options.knobmodes, default = 1,
+		if a < 2 then 
+			params:add{type = "option", name = paramknobs[a].name, id = paramknobs[a].id, options = options.knobmodes, default = 1,
+				action = function(value)
+				end}
+		else
+			params:add{type = "option", name = paramknobs[a].name, id = paramknobs[a].id, options = options.knobmodes, default = 2,
+				action = function(value)
+				end}
+		end
+		params:add{type = "option", name = "lfo " .. a .." type" , id = "lfo_" .. a .. "_type", options = options.lfotypes, default = 3,
 			action = function(value)
 			end}
-			params:add_control("knob_" .. a .. "_amp", "knob " .. a .. " amp", controlspec.new(0,1,"lin",0.01,.5))
-			params:add_control("knob_" .. a .. "_offset", "knob " .. a .. " offset", controlspec.new(0,127,"lin",1,64))
+		params:add_control("lfo_" .. a .. "_amp", "lfo " .. a .. " amp", controlspec.new(0,1,"lin",0.01,.5))
+		params:add_control("lfo_" .. a .. "_offset", "lfo " .. a .. " offset", controlspec.new(0,127,"lin",1,64))
+		params:add_separator()
 
 	end
+
+	params: add_number("midi_chan", "midi chan", 1, 16, 1) 
+
 
 
 	startTime = util.time()
@@ -61,11 +73,23 @@ function init()
 				lfo[i].freq = 0
 				lfo[i].bpm = 0 
 
+				send_cc(i,lfo[i].cc)
 			else
 				lfo[i].bpm = lfo[i].freq * 60
-				lfo[i].amp = params:get("knob_" .. i .. "_amp")
-				lfo[i].offset= params:get("knob_" .. i .. "_offset")
-				lfo[i].phase = math.sin((currentTime - startTime) * lfo[i].freq* tau)
+				lfo[i].amp = params:get("lfo_" .. i .. "_amp")
+				lfo[i].offset= params:get("lfo_" .. i .. "_offset")
+
+
+				if params:get("lfo_" .. i .. "_type") == 1 then --sin
+					lfo[i].phase = math.sin((currentTime - startTime) * lfo[i].freq* tau)
+				elseif params:get("lfo_" .. i .. "_type") == 2 then --square	
+					if math.sin((currentTime - startTime) * lfo[i].freq* tau) > 0 then lfo[i].phase = 1
+					else lfo[i].phase = -1 end
+				elseif params:get("lfo_" .. i .. "_type") == 3 then --exp?
+					lfo[i].phase = math.sin((currentTime - startTime) * lfo[i].freq* tau)
+				end
+
+					--locking down ccs
 				if math.ceil(lfo[i].offset + 64 * lfo[i].phase * lfo[i].amp) < 0 then 
 					lfo[i].cc = 0
 				elseif math.ceil(lfo[i].offset + 64 * lfo[i].phase * lfo[i].amp) > 127 then
@@ -77,8 +101,8 @@ function init()
 				lfo[i].ar = lfo[i].counter*.64
 
 
-				lfo[i].lastphase = lfo[i].phase
 				send_cc(i,lfo[i].cc)
+				lfo[i].lastphase = lfo[i].phase
 			end
 		end
 
@@ -112,6 +136,7 @@ function ar.delta(n, delta)
 				lfo[n].cc = math.floor(math.max(0, math.min((lfo[n].cc + delta/10), 127)))
 			end
 
+
 		end
 
 
@@ -144,9 +169,9 @@ function enc(n, delta)
 			lastTouched = ((lastTouched + delta)%5) 
 		end
 	elseif n == 2 then
-		params:delta("knob_" .. lastTouched .. "_amp",delta)
+		params:delta("lfo_" .. lastTouched .. "_amp",delta)
 	elseif n == 3 then
-		params:delta("knob_" .. lastTouched .. "_offset",delta)
+		params:delta("lfo_" .. lastTouched .. "_offset",delta)
 	end
 
 	acrDirty = true
