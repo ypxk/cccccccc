@@ -1,20 +1,15 @@
 --  lfos 
--- beta v5 
+-- beta v6 
 
 local lfo = {}
 
 for i=1,4 do
 	lfo[i] = {}
-	lfo[i].freq = ((math.random(1,10)-5)/10)*3
+	lfo[i].freq = math.random(1,10)/10 
+	lfo[i].newfreq = freq
 	lfo[i].cc = 1
-	lfo[i].amp = .5
-	lfo[i].offset = 64
-	lfo[i].ccmin = 0
-	lfo[i].ccmax = 127
-	lfo[i].lastphase = 1
 	lfo[i].counter = 1
-	lfo[i].newfreq = lfo[i].freq
-	lfo[i].newcc = lfo[i].cc 
+	lfo[i].waveform = "rnd"
 end
 
 local ar = arc.connect()
@@ -23,12 +18,15 @@ local framerate = 40
 local arcDirty = true
 local startTime 
 local tau = math.pi * 2
-local phaseReset = false
-local counter = 1
 local lastTouched = 1
+local newSpeed = false
+local interpolater = 1
+local slewer = 1 
+local seed = math.random(1,127)
 local options = {}
 options.knobmodes =	{"lfo", "val"}
-options.lfotypes = {"sine", "square","exp"}
+options.lfotypes = {"sin","saw","sqr","rnd"}
+
 
 
 engine.name = "PolyPerc"
@@ -49,81 +47,122 @@ function init()
 				action = function(value)
 				end}
 		end
-		params:add{type = "option", name = "lfo " .. a .." type" , id = "lfo_" .. a .. "_type", options = options.lfotypes, default = 3,
+		params:add{type = "option", name = "lfo " .. a .." type" , id = "lfo_" .. a .. "_type", options = options.lfotypes, default = 1,
 			action = function(value)
+				lfo[a].waveform = options.lfotypes[value]
 			end}
-		params:add_control("lfo_" .. a .. "_amp", "lfo " .. a .. " amp", controlspec.new(0,1,"lin",0.01,.5))
-		params:add_control("lfo_" .. a .. "_offset", "lfo " .. a .. " offset", controlspec.new(0,127,"lin",1,64))
+		params:add_control("lfo_" .. a .. "_ccamp", "lfo " .. a .. " ccamp", controlspec.new(0,1,"lin",0.01,1))
+		params:add_control("lfo_" .. a .. "_ccoffset", "lfo " .. a .. " ccoffset", controlspec.new(0,127,"lin",1,64))
 		params:add_separator()
 
 	end
 
 	params: add_number("midi_chan", "midi chan", 1, 16, 1) 
 
+		--tempcount = 0
 
 
 	startTime = util.time()
   lfo_metro = metro.init()
   lfo_metro.time = .01
-  lfo_metro.count = -100
+  lfo_metro.count = -1000
 	lfo_metro.event = function()
 		currentTime = util.time()
 		for i = 1,4 do 
+			
+			--knob mode
 			if params:get("arc_" .. i .. "_mode") == 2 then 
 				lfo[i].freq = 0
 				lfo[i].bpm = 0 
-
 				send_cc(i,lfo[i].cc)
 			else
+				--lfo mode
 				lfo[i].bpm = lfo[i].freq * 60
-				lfo[i].amp = params:get("lfo_" .. i .. "_amp")
-				lfo[i].offset= params:get("lfo_" .. i .. "_offset")
+				lfo[i].ccamp = params:get("lfo_" .. i .. "_ccamp")
+				lfo[i].ccoffset= params:get("lfo_" .. i .. "_ccoffset")
+				lfo[i].prevcc = lfo[i].cc
+--[[				if tempcount>1100 then lfo[i].waveform = "sin"
+				tempcount = 0
+				elseif tempcount>700 then lfo[i].waveform = "saw" 
+				elseif tempcount>300 then lfo[i].waveform ="sqr" end
+				tempcount = tempcount ]]
 
+				if lfo[i].waveform == "saw" then
+					lfo[i].slope = (-(127/99)*lfo[i].counter) + (127/99)
+				elseif lfo[i].waveform == "sin" then
+					lfo[i].slope = math.abs(127 * math.sin(((tau/100)*(lfo[i].counter))-(tau/(lfo[i].freq))))
+				elseif lfo[i].waveform == "sqr" then
+					if math.cos(((tau/100)*(lfo[i].counter))-(tau/(lfo[i].freq))) > 0 then 
+						lfo[i].slope = 127 * lfo[i].ccamp
+					else
+						lfo[i].slope = 1 * lfo[i].ccamp
+					end
+				elseif lfo[i].waveform == "rnd" then
+					if slewer==1 then
+						seed = math.random(1,127)
+						lfo[i].slope = slew(lfo[i].prevcc,seed)
+						print(lfo[i].prevcc,seed)
+					else
+						lfo[i].slope = slew(lfo[i].prevcc,seed)
+					end
 
-				if params:get("lfo_" .. i .. "_type") == 1 then --sin
-					lfo[i].phase = math.sin((currentTime - startTime) * lfo[i].freq* tau)
-				elseif params:get("lfo_" .. i .. "_type") == 2 then --square	
-					if math.sin((currentTime - startTime) * lfo[i].freq* tau) > 0 then lfo[i].phase = 1
-					else lfo[i].phase = -1 end
-				elseif params:get("lfo_" .. i .. "_type") == 3 then --exp?
-					lfo[i].phase = math.sin((currentTime - startTime) * lfo[i].freq* tau)
 				end
-
-					--locking down ccs
-				if math.ceil(lfo[i].offset + 64 * lfo[i].phase * lfo[i].amp) < 0 then 
-					lfo[i].cc = 0
-				elseif math.ceil(lfo[i].offset + 64 * lfo[i].phase * lfo[i].amp) > 127 then
-					lfo[i].cc = 127
+				
+			
+				if newSpeed == true then 
+					interpolate(lfo[i].prevcc,math.abs(math.floor(lfo[i].slope)),i)
+				--	interpolate(lfo[i].prevfreq,lfo[i].newfreq,i)
 				else
-					lfo[i].cc= math.ceil(lfo[i].offset + 64 * lfo[i].phase * lfo[i].amp)
+					lfo[i].cc = math.abs(math.floor(lfo[i].slope))
 				end
-				lfo[i].counter = (lfo[i].counter + (1*lfo[i].freq))%100
+
+
+			lfo[i].counter = ((lfo[i].counter + (1*lfo[i].freq)))%100
 				lfo[i].ar = lfo[i].counter*.64
-
-
 				send_cc(i,lfo[i].cc)
-				lfo[i].lastphase = lfo[i].phase
+				end
 			end
-		end
-
-		end
+	end
 
   lfo_metro:start()
   local arc_redraw_metro = metro.init()
 	arc_redraw_metro.event = function()
-			arc_redraw()
-			redraw()
+		arc_redraw()
+		redraw()
 	end
 	arc_redraw_metro:start(1 /framerate)
 end
 
+--helper functions 
 function send_cc(num,val)
 		md:cc(num,val,params:get("midi_chan"))
-
-
 end
 
+function interpolate(old,new,i)
+	if interpolater == 0 then interpolater = 50 end
+	t = interpolater/50
+	--print(interpolater, lfo[i].prevfreq,lfo[i].newfreq,lfo[i].freq)
+	--print(old.. "+".."(("..new.."-"..old.."*"..t..")".."="..lfo[i].freq)
+	lfo[i].cc = math.floor((old + ((new-old)*i)))
+	--lfo[i].freq = ((old + ((new-old)*t)))
+	--lfo[i].prevfreq = lfo[i].freq
+	--print(lfo[i].freq,lfo[i].prevfreq)
+	if interpolater == 50 then 
+		newSpeed = false 
+	end
 
+	interpolater = ((interpolater + 1)%50) 
+end
+
+function slew(old,new)
+	slewer = (slewer+1)%20
+
+	if slewer == 0 then slewer = 20 end
+	return old + ((new-old)*(slewer/20))
+end
+
+--device functions
+--
 function ar.delta(n, delta)
 	if params:get("arc_" .. n .. "_mode") == 2 then 
 	--knob mode
@@ -143,15 +182,16 @@ function ar.delta(n, delta)
 	else
 	--lfo mode
 	--
-		startTime = util.time()
-		if lfo[n].newfreq == lfo[n].freq then
-			lfo[n].newfreq = lfo[n].freq + (delta/500)
-		elseif lfo[n].newfreq ~= lfo[n].freq then
-			lfo[n].newfreq = lfo[n].newfreq + (delta/500)
+		if interpolater == 1 then
+		--lfo[n].prevfreq = lfo[n].freq		
+		--lfo[n].prevslope = math.abs(127 * math.sin(((tau/100)*(lfo[n].counter))-(tau/(lfo[n].prevfreq))))
+		--lfo[n].newfreq = lfo[n].freq + (delta/50)
+		lfo[n].freq = lfo[n].freq + (delta/50)
+		--print('start: ', lfo[n].prevfreq, "new: ", lfo[n].newfreq, "curr: ", lfo[n].freq)
+		newSpeed = true
 		end
-		lfo[n].newphase = math.sin((currentTime - startTime) * lfo[n].freq* tau)
-		lfo[n].newcc= math.ceil(64 + 64 * lfo[n].newphase * lfo[n].amp)
-			lfo[n].freq = lfo[n].newfreq
+		interpolater = 1
+
 	end
 
 	lastTouched = n
@@ -169,19 +209,16 @@ function enc(n, delta)
 			lastTouched = ((lastTouched + delta)%5) 
 		end
 	elseif n == 2 then
-		params:delta("lfo_" .. lastTouched .. "_amp",delta)
+		params:delta("lfo_" .. lastTouched .. "_ccamp",delta)
 	elseif n == 3 then
-		params:delta("lfo_" .. lastTouched .. "_offset",delta)
+		params:delta("lfo_" .. lastTouched .. "_ccoffset",delta)
 	end
-
 	acrDirty = true
-
 end
 
 function arc_redraw()
 	local brightness 
 	ar:all(0)
-
 	for a=1,4 do
 		--knob mode
 		if params:get("arc_" .. a .. "_mode") == 2 then 
@@ -203,7 +240,7 @@ function arc_redraw()
 			
 		--lfo mode
 		else
-		brightness = math.floor(lfo[a].amp * 15)
+		brightness = math.floor(lfo[a].ccamp * 15)
 		seg = lfo[a].ar/64
 		ar:segment(a,seg*tau,tau*seg+.2,brightness)
 		end
@@ -214,6 +251,12 @@ end
 
 function redraw()
   screen.clear()
+	screen.move(0,60)
+	screen.text(math.floor(lfo[1].counter) .. " " .. lfo[1].cc.. " " .. lfo[1].freq)
+	screen.level(15)
+	screen.pixel(math.abs(math.floor(lfo[1].counter)),lfo[1].cc/2)
+	screen.fill()
+	--[[
   screen.font_face(1)
   screen.font_size(8)
 	local x,y = 15, 0
@@ -224,8 +267,8 @@ function redraw()
 		'frq:',math.floor(lfo[1].freq*100)/100,math.floor(lfo[2].freq*100)/100,math.floor(lfo[3].freq*100)/100,math.floor(lfo[4].freq*100)/100,
 		'bpm:',math.abs(math.floor(lfo[1].bpm*100)/100),math.abs(math.floor(lfo[2].bpm*100)/100),math.abs(math.floor(lfo[3].bpm*100)/100),math.abs(math.floor(lfo[4].bpm*100)/100),
 		' cc:',lfo[1].cc,lfo[2].cc,lfo[3].cc,lfo[4].cc,
-		'amp:',lfo[1].amp,lfo[2].amp,lfo[3].amp,lfo[4].amp,
-		'off:',lfo[1].offset,lfo[2].offset,lfo[3].offset,lfo[4].offset,
+		'amp:',lfo[1].ccamp,lfo[2].ccamp,lfo[3].ccamp,lfo[4].ccamp,
+		'off:',lfo[1].ccoffset,lfo[2].ccoffset,lfo[3].ccoffset,lfo[4].ccoffset,
 	}
 
 
@@ -249,7 +292,7 @@ function redraw()
 			screen.text('--')
 		end
 		x = x + 25
-	end
+	end]]
 
 
   screen.update()
