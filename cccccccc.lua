@@ -1,10 +1,11 @@
--- lfos 
+-- cccccccc
 -- v1.0.0
---
 -- set midi cc values by arc 
--- encoder 1: scroll 
+-- encoder 1: lfo type
 -- encoder 2: set amp
 -- encoder 3: set offset
+-- key 2: toggle lfo/knob
+-- key 3: change focus 
 
 local ar = arc.connect()
 local md = midi.connect()
