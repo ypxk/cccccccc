@@ -63,6 +63,7 @@ function init()
 			end}
 		params:add_control("lfo_" .. a .. "_ccamp", "lfo " .. a .. " amp", controlspec.new(0,1,"lin",0.01,.5))
 		params:add_control("lfo_" .. a .. "_ccoffset", "lfo " .. a .. " offset", controlspec.new(-127,127,"lin",1,0))
+		params:add_control("lfo_" .. a .. "_ccnumber", "lfo " .. a .. " cc number", controlspec.new(1,127,"lin",1,a))
 		params:add_separator()
 	end
 	params: add_number("midi_chan", "midi chan", 1, 16, 1) 
@@ -130,7 +131,7 @@ function init()
 				else
 					lfo[i].ar = lfo[i].counter*.64
 				end
-					send_cc(i,lfo[i].cc)
+					send_cc(params:get("lfo_" .. i .. "_ccnumber"),lfo[i].cc)
 			end
 		end
 	end
@@ -252,7 +253,7 @@ function redraw()
 	local COLS = 5
 	--cleaner way to display rounded numbers??
 	local screenVars = {
-		'lfo:',1,2,3,4,
+		'lfo:', params:get("lfo_" .. 1 .. "_ccnumber"), params:get("lfo_" .. 2 .. "_ccnumber"), params:get("lfo_" .. 3 .. "_ccnumber"), params:get("lfo_" .. 4 .. "_ccnumber"),
 		'type:', lfo[1].waveform,lfo[2].waveform,lfo[3].waveform,lfo[4].waveform,
 		'frq:',math.floor(lfo[1].freq*100)/100,math.floor(lfo[2].freq*100)/100,math.floor(lfo[3].freq*100)/100,math.floor(lfo[4].freq*100)/100,
 		'amp:',lfo[1].ccamp,lfo[2].ccamp,lfo[3].ccamp,lfo[4].ccamp,
